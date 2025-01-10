@@ -109,7 +109,7 @@
     </div>
 
     <script>
-        let ws = new WebSocket('ws://localhost:7272/ws');
+        let ws = new WebSocket('{{.websocket}}');
         let userId;
 
         ws.onopen = function () {
@@ -135,7 +135,7 @@
 
         // 处理服务器消息
         function doAction(data) {
-            console.log(data);
+
             switch (data.type) {
                 case "OKJoinRoom":
                     userId = data.data.id;
