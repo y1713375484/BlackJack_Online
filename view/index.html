@@ -1,0 +1,332 @@
+{{define "index/index.html"}}
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <title>Blackjack Game</title>
+        <meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport">
+        <script src="https://awp-assets.meituan.net/thh/thh_feb_web_portal/js/jquery-3.6.0.min.js"></script>
+        <style>
+            html{
+                background-color: rgb(254, 197, 87, .8);
+            }
+            *{
+                margin: 0;
+                padding: 0;
+            }
+            li {
+                list-style: none;
+            }
+
+            #allPoker {
+                display: flex;
+                flex-direction: column;
+                height: 100vh;
+            }
+
+            .pokerBox {
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                flex: 1;
+            }
+
+            .pokerBox ul {
+                display: flex;
+                margin: 0;
+                padding: 0;
+            }
+
+            .pokerBox .hint {
+                text-align: center;
+                font-weight: bold;
+                margin-top: 10px;
+            }
+
+            .pokerBox ul li {
+                width: 100px;
+                height: 120px;
+                /*border: 2px dashed black;*/
+                margin-right: -80px;
+                padding: 5px 5px;
+                text-align: center;
+                line-height: 80px;
+                font-size: 20px;
+            }
+
+            .card-image {
+                width: 100px;
+                height: 120px;
+                border: 1px solid #ccc;
+                border-radius: 5px;
+                margin-right: 10px;
+            }
+
+            .dealer {
+                color: red;
+            }
+
+            .player {
+                color: blue;
+            }
+
+            #joinRoom{
+                width: 100px;
+                height: 70px;
+                margin: 30px auto;
+                display: block;
+            }
+
+            #wantPoker{
+                width: 60px;
+                height: 30px;
+                margin-right: 20px;
+            }
+
+
+            #stopPoker{
+                width: 60px;
+                height: 30px;
+            }
+
+            #action{
+                padding: 30px 0;
+                width: 100%;
+                background: rgba(68,139,97,.6);
+            }
+        </style>
+    </head>
+    <body>
+
+
+    <div id="allPoker">
+        <div id="opponentBox" class="pokerBox"></div> <!-- 对方的牌 -->
+        <div id="action"><div id="initBox" style="display: block">
+                <button id="joinRoom">加入房间</button>
+                <div id="joinHint"></div>
+            </div></div>
+        <div id="myBox" class="pokerBox"></div> <!-- 自己的牌 -->
+    </div>
+
+    <script>
+        let ws = new WebSocket('ws://localhost:7272/ws');
+        let userId;
+
+        ws.onopen = function () {
+            console.log('客户端连接成功');
+        };
+
+        ws.onmessage = function (e) {
+            let data = JSON.parse(e.data);
+            doAction(data);
+        };
+
+        ws.onclose = function () {
+            console.log("关闭客户端连接");
+        };
+
+        ws.onerror = function () {
+            console.log("连接失败了");
+        };
+
+        window.onbeforeunload = function () {
+            ws.close();
+        };
+
+        // 处理服务器消息
+        function doAction(data) {
+            console.log(data);
+            switch (data.type) {
+                case "OKJoinRoom":
+                    userId = data.data.id;
+                    $("#joinHint").text(`加入游戏房间成功，您是${userId}号玩家`);
+
+                    // 清空牌堆和提示信息
+                    $("#opponentBox").empty();
+                    $("#myBox").empty();
+                    break;
+                case "ServerInitPoker":
+                    $("#initBox").css("display", "none");
+                    renderPoker(data.data.poker, false); // 初始化发牌，隐藏部分牌
+                    break;
+                case "Wait":
+                    $("#action").empty();
+                    $("#action").html(`
+                    <div style="text-align: center">${data.message}</div>
+                `);
+                    break;
+                case "YouRound":
+                    $("#action").empty();
+                    $("#action").html(`
+                    <div style="margin: 0 auto;width: 100%;display: flex;justify-content: center;">
+                        <button id="wantPoker">要牌</button>
+                        <button id="stopPoker">停牌</button>
+                    </div>
+                `);
+                    break;
+                case "ServerSendPoker":
+                    // 来自服务器的发牌
+                    handleServerSendPoker(data);
+                    break;
+                case "GameOver":
+                    // 显示所有玩家的完整手牌
+                    renderPoker(data.data.poker, true);
+                    // 清空 action 区域
+                    $("#action").empty();
+
+                    // 添加“再来一局”按钮
+                    $("#action").html(`
+                    <div style="text-align: center;">
+                        <button id="restartGame">再来一局</button>
+                    </div>
+                `);
+                    // 显示游戏结果提示
+                    setTimeout(function () {
+                        alert(data.message);
+                    }, 1000);
+                    break;
+                case "ServerNotPoker":
+                    // 因为用户凑够5张牌，服务器无法发牌
+                    alert(data.message);
+                    break;
+                case "ErrorGame":
+
+                    // 显示游戏结果提示
+                    setTimeout(function () {
+                        alert(data.message);
+                    }, 1000);
+                    break;
+            }
+        }
+
+        // 处理新发的牌
+        function handleServerSendPoker(data) {
+            const receivedUserId = data.data.userId;
+            const newCard = data.data.poker;
+
+            if (receivedUserId === userId) {
+                addCardToPlayer(newCard, true);
+            } else {
+                addCardToPlayer(newCard, false);
+            }
+        }
+
+        // 添加新牌到玩家牌堆
+        function addCardToPlayer(newCard, isCurrentPlayer) {
+            const playerBox = isCurrentPlayer ? $('#myBox') : $('#opponentBox');
+            const currentCards = playerBox.find('ul').html();
+
+            // 获取新牌的图片路径
+            const cardValue = Object.keys(newCard)[0];
+            const imgSrc = getCardImageSrc(cardValue);
+
+            // 生成新牌的 HTML
+            const newCardHtml = `<li><img src="${imgSrc}" alt="${cardValue}" class="card-image"></li>`;
+
+            // 将新牌添加到牌堆的最前面
+            playerBox.find('ul').html(newCardHtml + currentCards);
+        }
+
+        // 根据牌值获取图片路径
+        function getCardImageSrc(cardValue) {
+            const suitMap = {
+                '♠': 's', // 黑桃
+                '♥': 'h', // 红心
+                '♦': 'd', // 方片
+                '♣': 'c'  // 梅花
+            };
+
+            const rankMap = {
+                'A': '1',
+                'J': 'j',
+                'Q': 'q',
+                'K': 'k'
+            };
+
+            // 提取花色和点数
+            const suit = suitMap[cardValue[0]]; // 获取花色对应的前缀
+            let rank = cardValue.slice(1); // 获取点数部分
+
+            // 处理A、J、Q、K的特殊情况
+            if (rankMap[rank]) {
+                rank = rankMap[rank];
+            }
+
+            // 返回图片路径
+            return `/static/images/${suit}${rank}.png`;
+        }
+
+        // 渲染牌堆
+        function renderPoker(pokerData, showAllCards) {
+            $('#opponentBox').empty();
+            $('#myBox').empty();
+
+            for (let [playerId, cards] of Object.entries(pokerData)) {
+                const isDealer = playerId === "1";
+                const isCurrentPlayer = playerId == userId;
+                const playerType = isDealer ? "庄家" : "闲家";
+                const playerClass = isDealer ? "dealer" : "player";
+
+                let cardElements = cards.map((card, index) => {
+                    let cardValue = Object.keys(card)[0];
+                    if (isCurrentPlayer || showAllCards) {
+                        // 显示正面图片
+                        let imgSrc = getCardImageSrc(cardValue);
+                        return `<li><img src="${imgSrc}" alt="${cardValue}" class="card-image"></li>`;
+                    } else {
+                        // 其他玩家的牌，第一张显示正面图片，第二张及以后显示背面图片
+                        if (index === 0) {
+                            let imgSrc = getCardImageSrc(cardValue);
+                            return `<li><img src="${imgSrc}" alt="${cardValue}" class="card-image"></li>`;
+                        } else {
+                            return `<li><img src="/static/images/unknow.png" alt="背面" class="card-image"></li>`;
+                        }
+                    }
+                }).join('');
+
+                const newPokerBox = `
+                <div>
+                    <ul>${cardElements}</ul>
+                    <div class="hint ${playerClass}">${playerId}号玩家 (${playerType}) ${isCurrentPlayer ? '(你)' : ''}</div>
+                </div>
+            `;
+
+                if (isCurrentPlayer) {
+                    $('#myBox').html(newPokerBox);
+                } else {
+                    $('#opponentBox').html(newPokerBox);
+                }
+            }
+        }
+
+        // 绑定“加入房间”按钮的点击事件
+        $("#joinRoom").click(function () {
+            let msg = { type: "joinRoom" };
+            let jsonMsg = JSON.stringify(msg);
+            ws.send(jsonMsg);
+        });
+
+        // 绑定“再来一局”按钮的点击事件
+        $(document).on('click', '#restartGame', function () {
+            let msg = { type: "joinRoom" };
+            let jsonMsg = JSON.stringify(msg);
+            ws.send(jsonMsg);
+        });
+
+        // 绑定“要牌”按钮的点击事件
+        $('#action').on('click', '#wantPoker', function () {
+            let msg = { type: "wantPoker", data: { userId: userId } };
+            let jsonMsg = JSON.stringify(msg);
+            ws.send(jsonMsg);
+        });
+
+        // 绑定“停牌”按钮的点击事件
+        $('#action').on('click', '#stopPoker', function () {
+            let msg = { type: "stopPoker", data: { userId: userId } };
+            let jsonMsg = JSON.stringify(msg);
+            ws.send(jsonMsg);
+        });
+    </script>
+    </body>
+    </html>
+{{end}}
